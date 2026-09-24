@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+data/
+.env
+*.log
+.DS_Store
+node_modules/
+.bridge_token
