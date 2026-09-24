@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TradingByZaaz — Signal Terminal</title>
+<link rel="stylesheet" href="/static/style.css" />
+<script src="/static/vendor/lightweight-charts.standalone.production.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">▲</span>
+    <span class="brand-name">TradingByZaaz</span>
+    <span class="brand-sub">signals · swings · trendlines · market memory</span>
+  </div>
+  <div class="topbar-right">
+    <span id="feed-badge" class="badge badge-demo">DEMO FEED</span>
+    <span id="conn-badge" class="badge badge-off">connecting…</span>
+    <span id="clock" class="clock">--:--:-- UTC</span>
+    <button id="btn-settings" class="icon-btn" title="Settings &amp; Exness bridge">⚙</button>
+  </div>
+</header>
+
+<nav class="symbol-row" id="symbol-row"></nav>
+
+<main class="layout">
+  <section class="chart-col">
+    <div class="chart-toolbar">
+      <div class="tf-row" id="tf-row"></div>
+      <div class="chart-meta">
+        <span id="cur-price" class="cur-price">—</span>
+        <span id="cur-bias" class="bias">—</span>
+        <span id="cur-src" class="src-note"></span>
+      </div>
+    </div>
+    <div id="chart-wrap"><div id="chart"></div></div>
+    <div class="structure-strip" id="structure-strip"></div>
+    <div class="risk-note">
+      ⚠ Signals are technical analysis for study — not financial advice. Trading FX/CFDs on Exness carries substantial risk of loss.
+    </div>
+  </section>
+
+  <aside class="side-col">
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Live Signals</h2>
+        <div class="panel-tools">
+          <label class="chk"><input type="checkbox" id="chk-sound" checked /> 🔔</label>
+          <select id="sel-sig-filter">
+            <option value="all">All symbols</option>
+            <option value="current">Current symbol</option>
+          </select>
+        </div>
+      </div>
+      <div id="signal-list" class="signal-list"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h2>Performance</h2><span class="muted" id="stats-line">—</span></div>
+      <div id="stats-box" class="stats-box"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h2>Feed Health</h2><span class="muted" id="feed-mode-note"></span></div>
+      <div id="feed-box" class="feed-box"></div>
+    </div>
+  </aside>
+</main>
+
+<div id="toasts" class="toasts"></div>
+
+<dialog id="settings-modal">
+  <form method="dialog" class="modal-card">
+    <h2>Settings · Exness Bridge</h2>
+
+    <details open>
+      <summary>Real-time Exness feed (MT5 bridge)</summary>
+      <p class="hint">Exness has no public price API — its real-time market data lives in your MT5 terminal. Run the bridge on the PC that has your Exness MT5 logged in, and it will stream live prices into this app (works behind this preview URL).</p>
+      <ol class="hint steps">
+        <li>On your Windows PC: <code>pip install MetaTrader5 requests</code></li>
+        <li>Download <a href="/bridge/mt5_bridge.py" download>mt5_bridge.py</a></li>
+        <li>Run: <code>python mt5_bridge.py --url &lt;this-app-url&gt; --token &lt;token&gt;</code></li>
+      </ol>
+      <label>Ingest token (keep secret — controls who may push data)
+        <div class="token-row">
+          <input id="inp-token" readonly />
+          <button type="button" id="btn-copy-token" class="mini">Copy</button>
+          <button type="button" id="btn-new-token" class="mini">New</button>
+        </div>
+      </label>
+      <label>Exness symbol suffix (e.g. <code>m</code> for EURUSDm)
+        <input id="inp-suffix" maxlength="6" />
+      </label>
+    </details>
+
+    <details>
+      <summary>Optional Twelve Data key</summary>
+      <label>API key (free at twelvedata.com — enables an alternate live source)
+        <input id="inp-tdkey" placeholder="…" />
+      </label>
+    </details>
+
+    <details>
+      <summary>Signal engine</summary>
+      <label class="chk"><input type="checkbox" id="inp-force-demo" /> Force demo feed (ignore real data)</label>
+      <label>Demo speed ×<input id="inp-speed" type="number" min="0.5" max="10" step="0.5" /></label>
+      <div class="grid2">
+        <label>Default RR (TP1)<input id="inp-rr" type="number" step="0.1" min="0.5" max="10" /></label>
+        <label>Stop buffer (× ATR)<input id="inp-sl" type="number" step="0.1" min="0.3" max="5" /></label>
+        <label>Risk % / trade<input id="inp-risk" type="number" step="0.1" min="0.1" max="10" /></label>
+        <label>Account balance<input id="inp-balance" type="number" step="100" min="100" /></label>
+      </div>
+    </details>
+
+    <details>
+      <summary>Broker symbol map</summary>
+      <p class="hint">JSON map of unusual broker names → canonical symbols, e.g. {"GOLD":"XAUUSD","BTCUSD.irc":"BTCUSD"}</p>
+      <textarea id="inp-map" rows="3"></textarea>
+    </details>
+
+    <div class="modal-actions">
+      <button id="btn-save-settings" class="primary">Save</button>
+      <button id="btn-close-settings">Close</button>
+      <button type="button" id="btn-demo-reset" class="danger">Reset demo data</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
