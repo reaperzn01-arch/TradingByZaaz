@@ -1,11 +1,18 @@
 """TradingByZaaz server — FastAPI app wiring feeds, engine and WebSocket broadcast."""
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+# Ensure vendor dependencies are in path
+vendor_dir = str(Path(__file__).resolve().parent.parent / "vendor_py")
+if vendor_dir not in sys.path:
+    sys.path.insert(0, vendor_dir)
+
 import asyncio
 import contextlib
 import json
 import time
-from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
@@ -218,6 +225,24 @@ async def ws_endpoint(ws: WebSocket):
 @app.get("/bridge/mt5_bridge.py")
 async def bridge_download():
     return FileResponse(Path(__file__).resolve().parent.parent / "bridge" / "mt5_bridge.py", filename="mt5_bridge.py")
+
+
+@app.get("/scripts/TradingByZaaz_WhaleConfluence.pine")
+async def download_pine():
+    p = Path(__file__).resolve().parent.parent / "scripts" / "TradingByZaaz_WhaleConfluence.pine"
+    return FileResponse(p, filename="TradingByZaaz_WhaleConfluence.pine", media_type="text/plain")
+
+
+@app.get("/scripts/TradingByZaaz_WhaleConfluence.mq5")
+async def download_mq5():
+    p = Path(__file__).resolve().parent.parent / "scripts" / "TradingByZaaz_WhaleConfluence.mq5"
+    return FileResponse(p, filename="TradingByZaaz_WhaleConfluence.mq5", media_type="text/plain")
+
+
+@app.get("/scripts/TradingByZaaz_WhaleConfluence.mq4")
+async def download_mq4():
+    p = Path(__file__).resolve().parent.parent / "scripts" / "TradingByZaaz_WhaleConfluence.mq4"
+    return FileResponse(p, filename="TradingByZaaz_WhaleConfluence.mq4", media_type="text/plain")
 
 
 @app.get("/")

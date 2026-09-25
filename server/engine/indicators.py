@@ -101,3 +101,43 @@ def stdev(vals: Sequence[float]) -> float:
         return 0.0
     m = sum(vals) / n
     return math.sqrt(sum((v - m) ** 2 for v in vals) / (n - 1))
+
+
+def rvol(volumes: Sequence[float], period: int = 20) -> list[float]:
+    """Relative Volume (RVOL) = current volume / simple moving average of volume."""
+    if not volumes:
+        return []
+    avg = sma(volumes, period)
+    out: list[float] = []
+    for v, a in zip(volumes, avg):
+        if a <= 1e-12:
+            out.append(1.0)
+        else:
+            out.append(round(v / a, 2))
+    return out
+
+
+def whale_absorption(
+    o: float, h: float, l: float, c: float, v: float, avg_v: float, rvol_thresh: float = 1.8
+) -> dict:
+    """Analyze single candle for institutional absorption / whale footprint."""
+    rng = max(h - l, 1e-9)
+    upper_wick = h - max(o, c)
+    lower_wick = min(o, c) - l
+    rvol_val = (v / avg_v) if avg_v > 1e-12 else 1.0
+    is_whale = rvol_val >= rvol_thresh
+
+    # Bullish absorption: heavy volume + wick down rejected / close in top 60%
+    bullish_whale = is_whale and (c > o or lower_wick > upper_wick) and (c >= l + 0.40 * rng)
+    # Bearish absorption: heavy volume + wick up rejected / close in bottom 60%
+    bearish_whale = is_whale and (c < o or upper_wick > lower_wick) and (c <= h - 0.40 * rng)
+
+    return {
+        "rvol": round(rvol_val, 2),
+        "is_whale": is_whale,
+        "bullish_whale": bullish_whale,
+        "bearish_whale": bearish_whale,
+        "lower_wick_ratio": round(lower_wick / rng, 2),
+        "upper_wick_ratio": round(upper_wick / rng, 2),
+    }
+

@@ -13,16 +13,17 @@ class Signal:
     id: str
     symbol: str
     tf: str
-    kind: str            # TRENDLINE_BOUNCE | TRENDLINE_BREAK | SWING_BREAKOUT | LEVEL_BOUNCE | LEVEL_BREAK
+    kind: str            # TRENDLINE_BOUNCE | TRENDLINE_BREAK | SWING_BREAKOUT | LEVEL_BOUNCE | LEVEL_BREAK | WHALE_SWEEP
     direction: str       # BUY | SELL
     entry: float
     sl: float
     tp1: float
     tp2: float
-    confidence: int      # 0..100
-    reasons: list[str]
-    created: float
-    bar_closed: bool
+    tp3: float = 0.0
+    confidence: int = 50 # 0..100
+    reasons: list[str] = field(default_factory=list)
+    created: float = 0.0
+    bar_closed: bool = True
     status: str = "ACTIVE"   # ACTIVE | TP1_HIT | TP2_HIT | SL_HIT | EXPIRED | CANCELLED
     best_status: str = "ACTIVE"
     closed: float | None = None
@@ -34,12 +35,16 @@ class Signal:
     track_high: float = 0.0   # post-entry extremes only (never the pre-entry wick)
     track_low: float = 0.0
     dedupe_key: str = ""
+    whale_flow: str = ""
+    rvol: float = 1.0
 
     def as_dict(self) -> dict:
         d = asdict(self)
         risk = max(abs(self.entry - self.sl), 1e-12)
         d["rr1"] = round(abs(self.tp1 - self.entry) / risk, 2)
         d["rr2"] = round(abs(self.tp2 - self.entry) / risk, 2)
+        if self.tp3:
+            d["rr3"] = round(abs(self.tp3 - self.entry) / risk, 2)
         return d
 
 
@@ -50,11 +55,16 @@ def score_confluence(
     momentum_ok: bool,
     near_session_level: bool,
     at_extreme: bool,
+    whale_agrees: bool = False,
+    rvol_val: float = 1.0,
 ) -> tuple[int, list[str]]:
     reasons: list[str] = []
     score = base
+    if whale_agrees:
+        score += 18
+        reasons.append(f"Whale volume surge ({rvol_val:.1f}x RVOL) confirms institutional footprint")
     if extra_structures > 0:
-        score += min(extra_structures, 2) * 8
+        score += min(extra_structures, 3) * 8
         reasons.append(f"{extra_structures}x confluence structure(s) in zone")
     if trend_agrees:
         score += 8
@@ -66,9 +76,9 @@ def score_confluence(
         score += 4
         reasons.append("Sitting on a session high/low")
     if at_extreme:
-        score += 3
-        reasons.append("Price at live market extreme (fade/reversal zone)")
-    score = max(5, min(94, score))
+        score += 4
+        reasons.append("Price at live market extreme (liquidity sweep zone)")
+    score = max(5, min(98, score))
     return score, reasons
 
 
@@ -89,12 +99,17 @@ def build_signal(
     level_name: str | None,
     bar_closed: bool,
     zone_key: str | None = None,
+    whale_flow: str = "",
+    rvol_val: float = 1.0,
 ) -> Signal:
     sign = 1 if direction == "BUY" else -1
-    sl = structure - sign * sl_atr * atr_val
-    risk = abs(entry - sl)
-    tp1 = entry + sign * risk * rr
-    tp2 = entry + sign * risk * (rr + 1.0)
+    # Low Loss Margin: Tight Stop Loss anchored strictly to structure/wick + tight ATR buffer
+    sl = structure - sign * max(0.5 * atr_val, sl_atr * atr_val)
+    risk = max(abs(entry - sl), atr_val * 0.4)
+    # High Win Margin: Asymmetric R-multiples (TP1 2.0R, TP2 3.5R, TP3 5.0R)
+    tp1 = entry + sign * risk * max(rr, 2.0)
+    tp2 = entry + sign * risk * max(rr + 1.5, 3.5)
+    tp3 = entry + sign * risk * max(rr + 3.0, 5.0)
     return Signal(
         id=uuid.uuid4().hex[:10],
         symbol=symbol,
@@ -105,6 +120,7 @@ def build_signal(
         sl=round(sl, digits),
         tp1=round(tp1, digits),
         tp2=round(tp2, digits),
+        tp3=round(tp3, digits),
         confidence=confidence,
         reasons=reasons,
         created=time.time(),
@@ -116,6 +132,8 @@ def build_signal(
         track_high=entry,
         track_low=entry,
         dedupe_key=f"{symbol}|{tf}|{kind}|{direction}|{zone_key or level_name or round(structure / max(atr_val, 1e-9), 1)}",
+        whale_flow=whale_flow,
+        rvol=round(rvol_val, 2),
     )
 
 
