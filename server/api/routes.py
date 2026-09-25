@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import secrets
 import time
+from pathlib import Path
 
 from fastapi import APIRouter, Header, HTTPException, Request
 
@@ -104,6 +105,19 @@ async def journal(request: Request) -> dict:
 @router.get("/stats")
 async def stats(request: Request) -> dict:
     return _sigman(request).stats()
+
+
+@router.get("/scripts")
+async def get_scripts() -> dict:
+    scripts_dir = Path(__file__).resolve().parent.parent.parent / "scripts"
+    pine_file = scripts_dir / "TradingByZaaz_WhaleConfluence.pine"
+    mq5_file = scripts_dir / "TradingByZaaz_WhaleConfluence.mq5"
+    mq4_file = scripts_dir / "TradingByZaaz_WhaleConfluence.mq4"
+    return {
+        "tradingview": pine_file.read_text(encoding="utf-8") if pine_file.exists() else "",
+        "mt5": mq5_file.read_text(encoding="utf-8") if mq5_file.exists() else "",
+        "mt4": mq4_file.read_text(encoding="utf-8") if mq4_file.exists() else "",
+    }
 
 
 @router.get("/settings")

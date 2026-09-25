@@ -86,7 +86,12 @@ class DemoSymbol:
         self.price = max(self.price, anchor * 0.90)
         self.price = min(self.price, anchor * 1.10)
         self.price = round(self.price, self.digits)
-        return self.price, abs(self.rng.gauss(1.0, 0.4))
+
+        # Realistic volume with periodic institutional / whale bursts
+        vol_base = abs(self.rng.gauss(100.0, 25.0))
+        if abs(jump) > 0.0 or self.vol_mult > 1.7 or self.rng.random() < 0.04:
+            vol_base *= self.rng.uniform(2.0, 4.2)  # Whale volume surge
+        return self.price, round(vol_base, 1)
 
     # ------------------------------------------------------------------
     def warmup_minutes(self, minutes: int, bar_secs: int = 60, end_at: int | None = None) -> list[Candle]:

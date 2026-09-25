@@ -56,6 +56,17 @@ class CandleSeries:
             [c.c for c in cs],
         )
 
+    @staticmethod
+    def arrays_with_vol_of(cs):
+        return (
+            [c.t for c in cs],
+            [c.o for c in cs],
+            [c.h for c in cs],
+            [c.l for c in cs],
+            [c.c for c in cs],
+            [getattr(c, "v", 0.0) for c in cs],
+        )
+
     def upsert(self, candle: Candle) -> Candle:
         cs = self.candles
         if not cs or candle.t > cs[-1].t:

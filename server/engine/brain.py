@@ -119,6 +119,14 @@ class SymbolBrain:
         extremes = sw.live_extremes(work, now_ts, session_start_ts(now_ts))
         bo_state = sw.breakout_state(price, pivots)
 
+        # Institutional Whale & RVOL analysis
+        volumes = [getattr(c, "v", 0.0) for c in work]
+        rvols = ind.rvol(volumes, 20)
+        cur_rvol = rvols[-1] if rvols else 1.0
+        avg_vol = (sum(volumes[-20:]) / max(1, len(volumes[-20:]))) if volumes else 1.0
+        last_c = work[-1]
+        whale_info = ind.whale_absorption(last_c.o, last_c.h, last_c.l, last_c.c, getattr(last_c, "v", 0.0), avg_vol, 1.8)
+
         return {
             "tf": tf,
             "ok": True,
@@ -131,6 +139,13 @@ class SymbolBrain:
             "ema50": round(e50, digits),
             "ema200": round(e200, digits),
             "bias": bias,
+            "whale": {
+                "rvol": cur_rvol,
+                "is_whale": whale_info["is_whale"],
+                "flow": "WHALE BUYING 🐋" if whale_info["bullish_whale"] else "WHALE SELLING 🐋" if whale_info["bearish_whale"] else "NORMAL",
+                "bullish_whale": whale_info["bullish_whale"],
+                "bearish_whale": whale_info["bearish_whale"],
+            },
             "pivots": [p.as_dict() for p in pivots[-12:]],
             "pivot_highs": [p.as_dict() for p in highs],
             "pivot_lows": [p.as_dict() for p in lows],
@@ -170,10 +185,17 @@ class SymbolBrain:
         momentum_ok = 30.0 <= rsi <= 70.0
 
         settings = self.settings
-        sl_atr = float(settings.get("sl_atr", 1.2))
-        rr = float(settings.get("default_rr", 1.8))
+        sl_atr = float(settings.get("sl_atr", 1.0))
+        rr = float(settings.get("default_rr", 2.0))
         conf_atr = float(settings.get("confluence_atr", 0.5))
         created: list[Signal] = []
+
+        whale = a.get("whale") or {}
+        rvol_val = whale.get("rvol", 1.0)
+        is_whale = whale.get("is_whale", False)
+        whale_flow = whale.get("flow", "NORMAL")
+        bullish_whale = whale.get("bullish_whale", False)
+        bearish_whale = whale.get("bearish_whale", False)
 
         def near_confluence(price_zone: float) -> tuple[int, str | None, bool]:
             """Count distinct structure types within the confluence radius."""
@@ -201,6 +223,38 @@ class SymbolBrain:
                         closest_d, closest_name = abs(v - price_zone), f"{line.kind} trendline"
             return min(count, 4), closest_name, at_extreme
 
+        # ---- 0) Whale Liquidity Sweep (Turtle Soup / Institutional Trap)
+        prev_data = a.get("prev") or {}
+        pdh_val = prev_data.get("pdh")
+        pdl_val = prev_data.get("pdl")
+        if pdl_val and last.l < pdl_val and price > pdl_val:
+            # Low swept, closed back above = Whales trapping retail sellers
+            extras, lvl_name, at_ext = near_confluence(pdl_val)
+            w_agree = bullish_whale or is_whale
+            conf, reasons = score_confluence(65, extras, not trend_dn, momentum_ok, False, True, w_agree, rvol_val)
+            reasons.insert(0, f"PDL Liquidity Sweep at {round(pdl_val, digits)} — Whales absorbed sell-side liquidity")
+            sig = build_signal(
+                self.symbol, tf, "WHALE_SWEEP", "BUY", price, last.l - 0.1 * atr, atr, 0.8, rr,
+                digits, pip, conf, reasons, "PDL Sweep", bar_closed,
+                zone_key="whale:pdl_sweep", whale_flow=whale_flow, rvol_val=rvol_val,
+            )
+            if self.sigman.add(sig, tf_secs):
+                created.append(sig)
+
+        if pdh_val and last.h > pdh_val and price < pdh_val:
+            # High swept, closed back below = Whales trapping breakout buyers
+            extras, lvl_name, at_ext = near_confluence(pdh_val)
+            w_agree = bearish_whale or is_whale
+            conf, reasons = score_confluence(65, extras, not trend_up, momentum_ok, False, True, w_agree, rvol_val)
+            reasons.insert(0, f"PDH Liquidity Sweep at {round(pdh_val, digits)} — Whales absorbed buy-side liquidity")
+            sig = build_signal(
+                self.symbol, tf, "WHALE_SWEEP", "SELL", price, last.h + 0.1 * atr, atr, 0.8, rr,
+                digits, pip, conf, reasons, "PDH Sweep", bar_closed,
+                zone_key="whale:pdh_sweep", whale_flow=whale_flow, rvol_val=rvol_val,
+            )
+            if self.sigman.add(sig, tf_secs):
+                created.append(sig)
+
         # ---- 1) Trendline events -------------------------------------
         prev_price = prev.c
         for line in a["trendline_objs"]:
@@ -215,17 +269,18 @@ class SymbolBrain:
                 direction = "SELL" if event == "resistance_reject" else "BUY"
                 kind = "TRENDLINE_BOUNCE"
                 structure = line.value_at(now_ts)
-            conf_base = 48 if kind == "TRENDLINE_BOUNCE" else 52
+            conf_base = 50 if kind == "TRENDLINE_BOUNCE" else 54
             extras, lvl_name, at_ext = near_confluence(structure)
             trend_agrees = (direction == "BUY" and trend_up) or (direction == "SELL" and trend_dn)
             if kind == "TRENDLINE_BOUNCE":
                 trend_agrees = (direction == "BUY" and not trend_dn) or (direction == "SELL" and not trend_up)
-            conf, reasons = score_confluence(conf_base, extras, trend_agrees, momentum_ok, False, at_ext)
+            whale_agrees = (direction == "BUY" and bullish_whale) or (direction == "SELL" and bearish_whale) or is_whale
+            conf, reasons = score_confluence(conf_base, extras, trend_agrees, momentum_ok, False, at_ext, whale_agrees, rvol_val)
             reasons.insert(0, f"{line.kind.capitalize()} trendline {event.replace('_', ' ')} ({line.touches} touches)")
             sig = build_signal(
                 self.symbol, tf, kind, direction, price, structure, atr, sl_atr, rr,
                 digits, pip, conf, reasons, lvl_name or f"{line.kind} trendline", bar_closed,
-                zone_key=f"tl:{line.t0}:{line.kind}",
+                zone_key=f"tl:{line.t0}:{line.kind}", whale_flow=whale_flow, rvol_val=rvol_val,
             )
             if self.sigman.add(sig, tf_secs):
                 created.append(sig)
@@ -246,12 +301,13 @@ class SymbolBrain:
                 continue
             extras, lvl_name, at_ext = near_confluence(structure)
             trend_agrees = (direction == "BUY" and trend_up) or (direction == "SELL" and trend_dn)
-            conf, reasons = score_confluence(50, extras, trend_agrees, momentum_ok, False, at_ext)
+            whale_agrees = (direction == "BUY" and bullish_whale) or (direction == "SELL" and bearish_whale) or is_whale
+            conf, reasons = score_confluence(52, extras, trend_agrees, momentum_ok, False, at_ext, whale_agrees, rvol_val)
             reasons.insert(0, f"Break of last swing {'high' if direction == 'BUY' else 'low'} at {round(structure, digits)}")
             sig = build_signal(
                 self.symbol, tf, "SWING_BREAKOUT", direction, price, structure, atr, sl_atr, rr,
                 digits, pip, conf, reasons, lvl_name, bar_closed,
-                zone_key=f"sw:{direction}",
+                zone_key=f"sw:{direction}", whale_flow=whale_flow, rvol_val=rvol_val,
             )
             if self.sigman.add(sig, tf_secs):
                 created.append(sig)
@@ -277,13 +333,14 @@ class SymbolBrain:
             extras = max(0, extras - 1)  # don't double-count the level itself
             trend_agrees = (direction == "BUY" and trend_up) or (direction == "SELL" and trend_dn)
             near_sess = lv["group"].startswith("session_")
-            conf_base = 45 if kind == "LEVEL_BOUNCE" else 47
-            conf, reasons = score_confluence(conf_base, extras, trend_agrees, momentum_ok, near_sess, at_ext)
+            whale_agrees = (direction == "BUY" and bullish_whale) or (direction == "SELL" and bearish_whale) or is_whale
+            conf_base = 48 if kind == "LEVEL_BOUNCE" else 50
+            conf, reasons = score_confluence(conf_base, extras, trend_agrees, momentum_ok, near_sess, at_ext, whale_agrees, rvol_val)
             reasons.insert(0, f"{lv['name']} {kind.split('_')[1].lower()} at {round(lp, digits)} (previous market data)")
             sig = build_signal(
                 self.symbol, tf, kind, direction, price, lp, atr, sl_atr, rr,
                 digits, pip, conf, reasons, lv["name"], bar_closed,
-                zone_key=f"lv:{lv['name']}",
+                zone_key=f"lv:{lv['name']}", whale_flow=whale_flow, rvol_val=rvol_val,
             )
             if self.sigman.add(sig, tf_secs):
                 created.append(sig)
